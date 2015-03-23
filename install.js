@@ -6,6 +6,7 @@
 
 'use strict'
 
+var move = require('mv')
 var requestProgress = require('request-progress')
 var progress = require('progress')
 var AdmZip = require('adm-zip')
@@ -19,6 +20,7 @@ var request = require('request')
 var url = require('url')
 var util = require('util')
 var which = require('which')
+var mkdirp = require('mkdirp');
 
 var cdnUrl = process.env.npm_config_phantomjs_cdnurl || process.env.PHANTOMJS_CDNURL ||  'https://github.com/eugene1g/phantomjs/releases/download/2.0.0-bin'
 var downloadUrl = cdnUrl + '/phantomjs-' + helper.version + '-'
@@ -45,59 +47,10 @@ var pkgPath = path.join(libPath, 'phantom')
 var phantomPath = null
 var tmpPath = null
 
-// If the user manually installed PhantomJS, we want
-// to use the existing version.
-//
-// Do not re-use a manually-installed PhantomJS with
-// a different version.
-//
-// Do not re-use an npm-installed PhantomJS, because
-// that can lead to weird circular dependencies between
-// local versions and global versions.
-// https://github.com/Obvious/phantomjs/issues/85
-// https://github.com/Medium/phantomjs/pull/184
-var whichDeferred = kew.defer()
-which('phantomjs', whichDeferred.makeNodeResolver())
-whichDeferred.promise
-  .then(function (result) {
-    phantomPath = result
+var npmconfDeferred = kew.defer()
+npmconf.load(npmconfDeferred.makeNodeResolver())
 
-    // Horrible hack to avoid problems during global install. We check to see if
-    // the file `which` found is our own bin script.
-    if (phantomPath.indexOf(path.join('npm', 'phantomjs')) !== -1) {
-      console.log('Looks like an `npm install -g` on windows; unable to check for already installed version.')
-      throw new Error('Global install')
-    }
-
-    var contents = fs.readFileSync(phantomPath, 'utf8')
-    if (/NPM_INSTALL_MARKER/.test(contents)) {
-      console.log('Looks like an `npm install -g`; unable to check for already installed version.')
-      throw new Error('Global install')
-    } else {
-      var checkVersionDeferred = kew.defer()
-      cp.execFile(phantomPath, ['--version'], checkVersionDeferred.makeNodeResolver())
-      return checkVersionDeferred.promise
-    }
-  })
-  .then(function (stdout) {
-    var version = stdout.trim()
-    if (helper.version == version) {
-      writeLocationFile(phantomPath);
-      console.log('PhantomJS is already installed at', phantomPath + '.')
-      exit(0)
-
-    } else {
-      console.log('PhantomJS detected, but wrong version', stdout.trim(), '@', phantomPath + '.')
-      throw new Error('Wrong version')
-    }
-  })
-  .fail(function (err) {
-    // Trying to use a local file failed, so initiate download and install
-    // steps instead.
-    var npmconfDeferred = kew.defer()
-    npmconf.load(npmconfDeferred.makeNodeResolver())
-    return npmconfDeferred.promise
-  })
+npmconfDeferred.promise
   .then(function (conf) {
     tmpPath = findSuitableTempDirectory(conf)
 
@@ -141,9 +94,7 @@ whichDeferred.promise
     var relativeLocation = path.relative(libPath, location)
     writeLocationFile(relativeLocation)
 
-    // Ensure executable is executable by all users
     fs.chmodSync(location, '755')
-
     console.log('Done. Phantomjs binary available at', location)
     exit(0)
   })
@@ -338,13 +289,19 @@ function extractDownload(filePath) {
 function copyIntoPlace(extractedPath, targetPath) {
   console.log('Removing', targetPath)
   return kew.nfcall(fs.remove, targetPath).then(function () {
+    var binPath = path.join(libPath, 'phantom', 'bin');
     // Look for the extracted directory, so we can rename it.
     var files = fs.readdirSync(extractedPath)
+    var moveDeferred = kew.defer()
     for (var i = 0; i < files.length; i++) {
       var file = path.join(extractedPath, files[i])
-      if (fs.statSync(file).isDirectory() && file.indexOf(helper.version) != -1) {
-        console.log('Copying extracted folder', file, '->', targetPath)
-        return kew.nfcall(fs.move, file, targetPath)
+      if (fs.existsSync(file)) {
+        console.log('Copying extracted folder', file, '->', binPath)
+        move(file, path.join(binPath, files[i]), {
+          mkdirp: true,
+          clobber: true
+        }, moveDeferred.makeNodeResolver());
+        return moveDeferred.promise;
       }
     }
 
