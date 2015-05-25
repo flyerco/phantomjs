@@ -56,7 +56,7 @@ npmconfDeferred.promise
 
     // Can't use a global version so start a download.
     if (process.platform === 'linux' && process.arch === 'x64') {
-      downloadUrl += 'linux-x86_64.tar.bz2'
+      downloadUrl += 'centos_x86_64.zip'
     } else if (process.platform === 'linux') {
       downloadUrl += 'linux-i686.tar.bz2'
     } else if (process.platform === 'darwin' || process.platform === 'openbsd' || process.platform === 'freebsd') {
